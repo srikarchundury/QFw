@@ -1,6 +1,6 @@
 [submodule "DEFw"]
 	path = DEFw
-	url = git@github.com:openQSE/DEFw.git
+	url = git@github.com:srikarchundury/DEFw.git
 	branch = master
 [submodule "external/qhw-data"]
 	path = external/qhw-data
