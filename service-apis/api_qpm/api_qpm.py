@@ -11,12 +11,17 @@ class QPMType(IntFlag):
 	QPM_TYPE_TNQVM = 1 << 3
 	QPM_TYPE_NWQSIM = 1 << 4
 	QPM_TYPE_IQM = 1 << 5
+	QPM_TYPE_QISKITAER = 1 << 6
+	QPM_TYPE_QTENSOR = 1 << 7
+	QPM_TYPE_IONQ = 1 << 8
+	QPM_TYPE_IBMQ = 1 << 9
 
 
 class QPMCapability(IntFlag):
 	QPM_CAP_TENSORNETWORK = 1 << 0
 	QPM_CAP_STATEVECTOR = 1 << 1
 	QPM_CAP_SUPERCONDUCTING = 1 << 2
+	QPM_CAP_IONTRAP = 1 << 3
 
 
 class QPM(BaseRemote):

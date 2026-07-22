@@ -12,6 +12,10 @@ from defw_exception import DEFwExecutionError, DEFwInProgress, DEFwOutOfResource
 import svc_launcher
 import cdefw_global
 
+from time import perf_counter
+
+from qbacmet import collector
+
 sys.path.append(os.path.split(os.path.abspath(__file__))[0])
 
 
@@ -56,6 +60,38 @@ class UTIL_QRC:
 			for v in self.worker_pool:
 				v['queue'].put(None)
 
+	# -------------------------
+	# QBacMet helper
+	# -------------------------
+	def _attach_metrics(self, r):
+		"""
+		Attach qbacmet collector.metrics into the result dict (best-effort).
+
+		We attach to BOTH:
+		  - the outer dict
+		  - the inner "result" dict (if present)
+		so even if callers only forward `result`, metrics survive.
+		"""
+		try:
+			m = collector.metrics
+			if not isinstance(m, dict) or not m:
+				return r
+
+			logging.debug(
+				"UTIL_QRC: _attach_metrics – attaching qbacmet metrics with top-level keys: %s",
+				list(m.keys()),
+			)
+
+			if isinstance(r, dict):
+				r["qbacmet_metrics"] = m
+				res = r.get("result", None)
+				if isinstance(res, dict):
+					res["qbacmet_metrics"] = m
+		except Exception as e:
+			# Never let metrics attachment break normal flow
+			logging.debug(f"UTIL_QRC: _attach_metrics – exception while attaching metrics: {e}")
+		return r
+
 	def parse_task_result(self, stdout, circ, task_info):
 		return self.parse_result(stdout)
 
@@ -83,7 +119,18 @@ class UTIL_QRC:
 			try:
 				if rc == 0:
 					try:
+						t_parse0 = perf_counter()
 						output = self.parse_task_result(stdout, circ, task_info)
+						t_parse1 = perf_counter()
+						parse_time = t_parse1 - t_parse0
+
+						# minimal QBacMet injection for postprocess timing
+						try:
+							if getattr(collector, "collecting", False):
+								collector.postprocess_layer.metrics["result_marshalling_time"] = parse_time
+						except Exception as e:
+							logging.debug("UTIL_QRC: check_active_tasks – postprocess metrics injection failed: %s", e)
+
 						circ.set_exec_done()
 					except Exception as e:
 						logging.critical(f"parse result failure = {e}")
@@ -115,6 +162,7 @@ class UTIL_QRC:
 				'cq_enqueue_time': time.time(),
 				'cq_dequeue_time': -1
 			}
+			r = self._attach_metrics(r)
 
 			circ.free_resources(circ)
 
@@ -201,6 +249,7 @@ class UTIL_QRC:
 						'cq_enqueue_time': time.time(),
 						'cq_dequeue_time': -1
 					}
+					r = self._attach_metrics(r)
 					circ.free_resources(circ)
 					if self.push_info:
 						event = Event(self.push_info['evtype'], r)
@@ -250,6 +299,26 @@ class UTIL_QRC:
 		return None
 
 	def run_circuit_async(self, circ):
+		"""
+		Async entry point wrapped with qbacmet.collector so local-launch
+		QRCs also see a QBacMet context when used directly.
+		"""
+		logging.debug("UTIL_QRC: run_circuit_async – entering collector.collect()")
+		with collector.collect():
+			info = self._run_circuit_async_internal(circ)
+			logging.debug(
+				"UTIL_QRC: run_circuit_async – inside collect, partial collector.metrics keys: %s",
+				list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
+			)
+
+		logging.debug(
+			"UTIL_QRC: run_circuit_async – after collect, final collector.metrics keys: %s",
+			list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
+		)
+		info = self._attach_metrics(info)
+		return info
+
+	def _run_circuit_async_internal(self, circ):
 		cid = circ.get_cid()
 
 		tmp_dir = cdefw_global.get_defw_tmp_dir()
@@ -279,6 +348,26 @@ class UTIL_QRC:
 		return task_info
 
 	def run_circuit(self, circ):
+		"""
+		Sync entry point wrapped with qbacmet.collector so local-launch
+		QRCs also see a QBacMet context when used directly.
+		"""
+		logging.debug("UTIL_QRC: run_circuit – entering collector.collect()")
+		with collector.collect():
+			result = self._run_circuit_internal(circ)
+			logging.debug(
+				"UTIL_QRC: run_circuit – inside collect, partial collector.metrics keys: %s",
+				list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
+			)
+
+		logging.debug(
+			"UTIL_QRC: run_circuit – after collect, final collector.metrics keys: %s",
+			list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
+		)
+		result = self._attach_metrics(result)
+		return result
+
+	def _run_circuit_internal(self, circ):
 		cid = circ.get_cid()
 
 		tmp_dir = cdefw_global.get_defw_tmp_dir()
@@ -297,7 +386,19 @@ class UTIL_QRC:
 			circ.set_running()
 			output, error, rc = launcher.launch(cmd, wait=True)
 			task_info = {'qasm_file': qasm_file}
+
+			t_parse0 = perf_counter()
 			output = self.parse_task_result(output, circ, task_info)
+			t_parse1 = perf_counter()
+			parse_time = t_parse1 - t_parse0
+
+			# minimal QBacMet injection for postprocess timing
+			try:
+				if getattr(collector, "collecting", False):
+					collector.postprocess_layer.metrics["result_marshalling_time"] = parse_time
+			except Exception as e:
+				logging.debug("UTIL_QRC: _run_circuit_internal – postprocess metrics injection failed: %s", e)
+
 			launcher.shutdown()
 			logging.debug(f"Completed -- {cmd} -- returned {rc} -- {output} -- {error}")
 		except Exception as e:

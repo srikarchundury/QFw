@@ -16,3 +16,7 @@ backends:
     wrapper: gpuwrapper.sh
   nwqsim:
     wrapper: null
+  qiskitaer:
+    wrapper: gpuwrapper.sh
+  qtensor:
+    wrapper: gpuwrapper.sh

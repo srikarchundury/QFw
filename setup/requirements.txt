@@ -6,6 +6,7 @@ supermarq
 pennylane
 pennylane-qiskit
 qiskit-ibm-runtime
+qiskit-ionq
 iqm-client==34.0.1
 iqm-data-definitions==2.24
 iqm-exa-common==27.5.1
@@ -19,3 +20,6 @@ numpy
 scipy
 pyscf
 PyYAML
+# qbacmet is not on PyPI: install locally with
+#   pip install -e <path-to-QBacMet>
+# (metrics collector used by util_qrc.py's collector.collect() wrapping)

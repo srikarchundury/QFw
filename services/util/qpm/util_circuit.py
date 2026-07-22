@@ -54,6 +54,9 @@ class Circuit:
 		else:
 			np = round_to_nearest_power_of_two(np)
 		self.info['np'] = np
+		#######################################################################
+		# self.info['np'] = 8 ####### ....HARD-CODED FOR Benchmarking.... #######
+		#######################################################################
 		logging.debug(
 			f"Setting number of processes to: {self.info['np']} "
 			f"for num qubits: {self.info['num_qubits']}")

@@ -9,3 +9,7 @@ backends:
     wrapper: null
   nwqsim:
     wrapper: null
+  qiskitaer:
+    wrapper: null
+  qtensor:
+    wrapper: null

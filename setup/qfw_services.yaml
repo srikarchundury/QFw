@@ -15,6 +15,34 @@ services:
     assigned-hosts: group1
     assigned-hosts-env: QFW_QPM_ASSIGNED_HOSTS
 
+  - name: qiskitaer
+    module: svc_qiskitaer_qpm
+    load-modules: svc_qiskitaer_qpm,api_launcher
+    agent-prefix: qpm_qiskitaer
+    target: group1-head
+    assigned-hosts: group1
+    assigned-hosts-env: QFW_QPM_ASSIGNED_HOSTS
+
+  - name: qtensor
+    module: svc_qtensor_qpm
+    load-modules: svc_qtensor_qpm,api_launcher
+    agent-prefix: qpm_qtensor
+    target: group1-head
+    assigned-hosts: group1
+    assigned-hosts-env: QFW_QPM_ASSIGNED_HOSTS
+
+  - name: ionq
+    module: svc_ionq_qpm
+    load-modules: svc_ionq_qpm,api_launcher
+    agent-prefix: qpm_ionq
+    target: group1-head
+
+  - name: ibmq
+    module: svc_ibmq_qpm
+    load-modules: svc_ibmq_qpm,api_launcher
+    agent-prefix: qpm_ibmq
+    target: group1-head
+
   - name: iqm-ornl-20q
     module: svc_iqm_qpm
     load-modules: svc_iqm_qpm,api_launcher
