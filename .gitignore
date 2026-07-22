@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.egg-info/
 
 # Per-service credential/env configs (e.g. ionq_env.yaml, ibmq_env.yaml) —
 # never commit API keys/tokens. services/config/*.yaml and
