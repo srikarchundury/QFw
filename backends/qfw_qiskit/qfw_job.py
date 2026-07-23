@@ -49,6 +49,23 @@ class QFwJob(Job):
 		if self._backend.returns_statevector():
 			info["return_statevector"] = True
 
+		# The client's requested backend/device/optimization_level/noise_model
+		# (QFwBackend(properties=...)) was previously never sent to the QPM/QRC
+		# at all -- every backend that reads a per-request choice silently fell
+		# back to its default (qiskitaer/qtensor always "statevector"/"numpy"
+		# on CPU regardless of sub_backend; ionq always the ideal simulator;
+		# ibmq always service.least_busy(), landing on whatever real system was
+		# least busy rather than the requested one; nwqsim/tnqvm never got
+		# -backend at all). Forward it both ways: nested under "qpm_options"
+		# (qiskitaer/qtensor/ionq/ibmq's convention) and flat as "backend"
+		# (nwqsim/tnqvm's convention).
+		qpm_options = self._backend.qpm_options
+		if qpm_options:
+			info["qpm_options"] = qpm_options
+			backend_choice = qpm_options.get("backend")
+			if backend_choice:
+				info["backend"] = backend_choice
+
 		try:
 			cid = self._qpm.async_run(info)
 			return cid

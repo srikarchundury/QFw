@@ -149,6 +149,14 @@ class QFwBackend(BackendV2):
 		return self._options_properties
 
 	@property
+	def qpm_options(self):
+		# The `properties` dict passed to __init__ (backend/device/
+		# optimization_level/noise_model, set by client scripts) -- forwarded
+		# to the QPM/QRC as circ.info["qpm_options"] by QFwJob so per-request
+		# backend selection actually takes effect server-side.
+		return self._properties or {}
+
+	@property
 	def target(self):
 		if self._target is not None:
 			return self._target
