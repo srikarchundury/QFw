@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+
+import os
+from argparse import ArgumentParser
+from qiskit_aer.aerprovider import AerSimulator
+from qiskit.circuit.quantumcircuit import QuantumCircuit
+# from qiskit.utils import algorithm_globals
+
+parser = ArgumentParser()
+parser.add_argument("-q", "--qasm_file", required=True)
+parser.add_argument("-s", "--shots", default=1024, type=int)
+parser.add_argument("-b", "--backend", default="automatic")
+parser.add_argument("-d", "--device", default="CPU")
+parser.add_argument("--blocking_qubits", default=2, type=int)
+parser.add_argument("--seed", default=42, type=int, help="Consistent random seed for all processes")
+args = parser.parse_args()
+
+# # Set consistent seed for all processes
+# algorithm_globals.random_seed = args.seed
+## this above does not seem to work with latest qiskit, so we will not use it
+
+qc = QuantumCircuit.from_qasm_file(args.qasm_file)
+
+simulator = AerSimulator(
+	method=args.backend,
+	device=args.device
+)
+
+result = simulator.run(
+	qc,
+	shots = args.shots,
+	blocking_enable = True,
+	blocking_qubits = args.blocking_qubits
+).result()
+
+meta = result.to_dict().get('metadata', {})
+# Aer only populates 'mpi_rank' in its own result metadata when built with
+# MPI support. This build isn't, so that key is always absent and 'myrank'
+# would stay 'Unknown' forever, meaning the process never satisfies
+# "myrank == 0" and never prints its counts. Fall back to the real MPI
+# launcher's own rank env vars (set correctly by mpirun/srun regardless of
+# whether Aer itself has MPI support compiled in), and default to rank 0
+# for a genuinely single-process run.
+myrank = meta.get(
+	'mpi_rank',
+	int(os.environ.get("OMPI_COMM_WORLD_RANK", os.environ.get("PMI_RANK", 0)))
+)
+numprocs = meta.get('num_mpi_processes', 'Unknown')
+
+# print(f"[DEBUG] Rank {myrank}/{numprocs} finished simulation.")
+
+if myrank == 0:
+	print("counts=", result.get_counts(), sep="")
+
+# if myrank != 'Unknown':
+#     print(f"counts={result.get_counts()}")
+
+## Reference: https://qiskit.github.io/qiskit-aer/howtos/running_gpu.html

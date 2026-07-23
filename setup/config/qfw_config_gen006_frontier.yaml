@@ -1,0 +1,8 @@
+base-dir: /lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related
+runtime-mode: cluster
+service-runtime-config: services/config/frontier.yaml
+mpi-transport-mode: ofi
+qfw-module-path: /lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/modules
+qfw-module-load: quantum/qsim
+python-venv-activate: /lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/qfwVirtEnv/bin/activate
+qfw-dep-build-version: ORNL_STACK_with_PEPS

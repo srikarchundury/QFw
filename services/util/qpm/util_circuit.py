@@ -1,6 +1,7 @@
 from defw_agent_info import *  # noqa: F401,F403
 from defw_util import round_half_up, round_to_nearest_power_of_two
 import logging
+import os
 import time
 
 # Maximum number of processes per node
@@ -47,6 +48,20 @@ class Circuit:
 		self.resources_consumed_time = -1
 
 	def setup_circuit_run_details(self, max_qubits):
+		# Benchmarking override: force a specific process count regardless
+		# of circuit size, instead of the usual qubits-per-process scaling
+		# below. Only meaningful for backends that actually launch a local
+		# `mpirun -np <info['np']> circuit_runner...` (qiskitaer, nwqsim,
+		# tnqvm, qtensor) -- ionq/ibmq make a single direct cloud API call
+		# and never read info['np'], so this has no effect for them.
+		forced_np = os.environ.get('QFW_FORCE_NP', '').strip()
+		if forced_np:
+			self.info['np'] = int(forced_np)
+			logging.debug(
+				f"QFW_FORCE_NP={forced_np} set — forcing number of processes to: "
+				f"{self.info['np']} for num qubits: {self.info['num_qubits']}")
+			return
+
 		# each 10 qubits requires 1 node added to the simulation
 		np = round_half_up(self.info['num_qubits'] / max_qubits)
 		if np < 1:
@@ -54,9 +69,6 @@ class Circuit:
 		else:
 			np = round_to_nearest_power_of_two(np)
 		self.info['np'] = np
-		#######################################################################
-		# self.info['np'] = 8 ####### ....HARD-CODED FOR Benchmarking.... #######
-		#######################################################################
 		logging.debug(
 			f"Setting number of processes to: {self.info['np']} "
 			f"for num qubits: {self.info['num_qubits']}")

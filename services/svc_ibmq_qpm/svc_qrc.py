@@ -31,7 +31,11 @@ class QRC(UTIL_QRC):
 		Attach qbacmet collector metrics into the result dict (best-effort).
 
 		Critical: we attach to BOTH the outer dict and the inner "result"
-		dict, so even if QFw only forwards `result`, metrics survive.
+		dict, but ONLY if "result" is a wrapper dict (has a "counts" key
+		already) rather than the raw bitstring -> count mapping returned
+		directly. Injecting "qbacmet_metrics" into that flat dict would
+		corrupt the counts themselves (a bitstring key whose "count" is a
+		metrics dict), breaking result parsing downstream.
 		"""
 		try:
 			m = collector.metrics
@@ -48,9 +52,10 @@ class QRC(UTIL_QRC):
 				# top-level
 				r["qbacmet_metrics"] = m
 
-				# also inside the "result" payload if it's a dict
+				# also inside the "result" payload, but only if it's a
+				# wrapper dict, not the flat counts dict itself
 				res = r.get("result", None)
-				if isinstance(res, dict):
+				if isinstance(res, dict) and ("counts" in res or "statevector" in res):
 					res["qbacmet_metrics"] = m
 		except Exception as e:
 			# Never let metrics attachment break normal flow

@@ -24,12 +24,27 @@ class UTIL_QPM:
 		self.qrc = qrc
 		self.free_hosts = {}
 		self.max_ppn = max_ppn
-		self.setup_host_resources(max_ppn)
+		if start:
+			# The framework probes every registered service class with a
+			# disposable start=False instance (see BaseAgentAPI.query())
+			# purely to read static capability metadata. Host resources are
+			# only meaningful for a real, executing instance, and requiring
+			# QFW_QPM_ASSIGNED_HOSTS here breaks single-host/cloud services
+			# (e.g. ionq, ibmq) that have no assigned-hosts config at all —
+			# every capability probe would crash with a KeyError before it
+			# ever got to report its type/capability.
+			self.setup_host_resources(max_ppn)
 		self.all_results = []
 		self.push_info = {}
 
 	def setup_host_resources(self, max_ppn):
-		hl = expand_host_list(os.environ['QFW_QPM_ASSIGNED_HOSTS'])
+		# Single-host/cloud services (ionq, ibmq) have no assigned-hosts in
+		# qfw_services.yaml — they dispatch to a remote provider, not a
+		# local compute host, and override consume_resources() to skip
+		# free_hosts tracking entirely. Default to unset rather than
+		# raising, since requiring host assignment here would break every
+		# such service that has none configured.
+		hl = expand_host_list(os.environ.get('QFW_QPM_ASSIGNED_HOSTS', ''))
 		for h in hl:
 			comp = h.split(':')
 			if len(comp) == 1:

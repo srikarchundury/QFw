@@ -6,3 +6,7 @@ __pycache__/
 # never commit API keys/tokens. services/config/*.yaml and
 # setup/qfw_services.yaml are tracked framework config, not credentials.
 services/svc_*_qpm/*.yaml
+services/svc_*_qpm/*_env.sh
+
+# Local Python build output (setup.py build), not portable/reproducible source
+backends/build/

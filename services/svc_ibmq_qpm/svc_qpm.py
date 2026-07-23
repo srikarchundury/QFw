@@ -28,7 +28,19 @@ class QPM(UTIL_QPM):
 		if not service_crn:
 			raise DEFwError("IBMQ_SERVICE_CRN not set in environment!")
 
-		if os.environ.get("QFW_TRANSPILE_ONLY", "").strip() == "1":
+		if not start:
+			# The framework probes every registered service class with a
+			# disposable start=False instance (see BaseAgentAPI.query())
+			# purely to read static capability metadata via query(). That
+			# happens repeatedly (e.g. on every get_services() lookup), so
+			# it must stay cheap — never make the real network round-trip
+			# to IBM Runtime here, or every capability probe pays for a
+			# full service/backends() fetch and starves real QPM
+			# reservation of the time it needs to register.
+			logging.debug("IBMQ_QPM(Runtime): start=False – skipping cloud service init (metadata probe only)")
+			self.service = None
+			self.backends = []
+		elif os.environ.get("QFW_TRANSPILE_ONLY", "").strip() == "1":
 			logging.info("IBMQ_QPM(Runtime): QFW_TRANSPILE_ONLY=1 – skipping cloud service init")
 			self.service = None
 			self.backends = []

@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+
+from argparse import ArgumentParser
+from mpi4py import MPI
+import numpy as np
+
+parser = ArgumentParser()
+parser.add_argument("-q", "--qasm_file", required=True)
+parser.add_argument("-b", "--backend", choices=["numpy", "cupy", "torch"], default="numpy")
+parser.add_argument("-s", "--shots", type=int, default=1024)
+parser.add_argument("-d", "--device", default="CPU")
+args = parser.parse_args()
+
+# ----------------------------------------
+# Define custom MPIPool wrapper
+# ----------------------------------------
+from qtensor.tools.mpi import mpi_map, print_stats
+
+class MPIPool:
+	def __init__(self, nprocs=None):
+		self.comm = MPI.COMM_WORLD
+		self.rank = self.comm.Get_rank()
+		self.size = self.comm.Get_size()
+
+	def map(self, func, args):
+		# print(f"[DEBUG] Rank {self.rank}: map() called with {len(args)} tasks", flush=True)
+		def wrapper_fn(*args, **kwargs):
+			return func(*args, **kwargs)
+		return mpi_map(wrapper_fn, args)
+
+	def imap(self, func, args):
+		if self.rank == 0:
+			return self.map(func, args)
+		else:
+			self.map(func, args)
+			return [0]
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, exc_type, exc_value, traceback):
+		pass
+
+# ----------------------------------------
+# Load QASM circuit and convert to QTensor
+# ----------------------------------------
+from qiskit.circuit.quantumcircuit import QuantumCircuit
+from qtensor import QtreeSimulator, FeynmanSimulator
+from qtensor.optimisation.Optimizer import SlicesOptimizer
+from qtree.operators import from_qiskit_circuit
+
+qc = QuantumCircuit.from_qasm_file(args.qasm_file)
+
+if args.backend == "numpy":
+	from qtensor.ProcessingFrameworks import NumpyBackend
+	bucket_backend = NumpyBackend()
+elif args.backend == "cupy":
+	from qtensor.ProcessingFrameworks import CupyBackend
+	bucket_backend = CupyBackend()
+elif args.backend == "torch":
+	from qtensor.ProcessingFrameworks import TorchBackend
+	bucket_backend = TorchBackend()
+
+# ----------------------------------------
+# Create MPI-parallel QTensor simulator
+# ----------------------------------------
+simulator = FeynmanSimulator(bucket_backend=bucket_backend, optimizer=SlicesOptimizer(max_tw=25, tw_bias=0), n_processes = MPI.COMM_WORLD.Get_size())
+# simulator = QtreeSimulator(bucket_backend=bucket_backend)
+simulator.pool = MPIPool
+
+num_qubits, qtensor_qc = from_qiskit_circuit(qc)
+all_gates = sum(qtensor_qc, [])
+
+# ----------------------------------------
+# Run MPI-parallel simulation
+# ----------------------------------------
+
+# print(f"[DEBUG] Rank {MPI.COMM_WORLD.Get_rank()}: starting simulate_batch", flush=True)
+final_state = simulator.simulate_batch_adaptive(all_gates, batch_vars=num_qubits)
+# print(f"[DEBUG] Rank {MPI.COMM_WORLD.Get_rank()}: finished simulate_batch", flush=True)
+
+if MPI.COMM_WORLD.Get_rank() == 0:
+	# # print mpi4py config
+	# vendor = MPI.get_vendor()
+	# version = MPI.Get_version()
+	# lib_version = MPI.Get_library_version()
+	# print(f"\n=== MPI Installation Details ===")
+	# print(f"Vendor: {vendor[0]}, Version: {vendor[1]}")
+	# print(f"MPI Standard Version: {version}")
+	# print(f"--- Full Library Version Info ---")
+	# print(f"{lib_version}", end="")
+
+	probabilities = np.abs(final_state) ** 2
+	indices = np.flatnonzero(probabilities > 1e-12)
+	str_format = f"0{num_qubits}b"
+	counts = {
+		format(i, str_format): int(round(args.shots * probabilities[i]))
+		for i in indices
+		if int(round(args.shots * probabilities[i])) > 0
+	}
+	print("counts=", counts, flush=True, sep="")
+	# print("="*80)
+	# print_stats()

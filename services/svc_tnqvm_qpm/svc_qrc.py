@@ -29,9 +29,16 @@ class QRC(UTIL_QRC):
 
 			payload = json.loads(out_str[json_start:json_end + 1])
 			counts = payload.get('AcceleratorBuffer', {}).get('Measurements', {})
-			if not counts:
-				raise DEFwError({"Error": "Could not parse result!"})
-				return {"Error": "Could not parse result!"}
+			# XACC sometimes serializes "Measurements" as a JSON-encoded
+			# string rather than a nested object; decode it so callers
+			# always get a real dict of bitstring -> count.
+			if isinstance(counts, str):
+				try:
+					counts = json.loads(counts)
+				except (ValueError, TypeError) as e:
+					raise DEFwError({"Error": f"Measurements was a string but not valid JSON: {e}", "raw": counts})
+			if not counts or not isinstance(counts, dict):
+				raise DEFwError({"Error": "Could not parse result!", "raw": out_str})
 
 			return counts
 		except Exception as e:
@@ -61,21 +68,32 @@ class QRC(UTIL_QRC):
 		if dvm and not os.path.exists(dvm):
 			raise DEFwExecutionError(f"dvm-uri {dvm} doesn't exist")
 
+		visitor = info.get("backend") or "exatn-mps"
+
+		# circuit_runner.tnqvm's own required flags. NOTE: its "-v" is the
+		# TNQVM visitor (exatn-mps/exatn-peps/exatn-ttn), not the launcher
+		# wrapper's "-v" (verbose) below — same short flag, two unrelated
+		# programs. Build these first so the wrapper case can prepend the
+		# actual target path without colliding with its own option parsing.
+		executable_args = [
+			'-q', qasm_file,
+			'-b', info["num_qubits"],
+			'-s', info["num_shots"],
+			'-c', compiler,
+			'-v', visitor,
+		]
+
 		executable = circuit_runner
-		executable_args = []
 		wrapper = backend_wrapper('tnqvm')
 		if wrapper:
 			executable = shutil.which(wrapper)
 			if not executable:
 				raise DEFwExecutionError(f"Couldn't find {wrapper}. Check paths")
-			executable_args.extend(['-v', circuit_runner])
-
-		executable_args.extend([
-			'-q', qasm_file,
-			'-b', info["num_qubits"],
-			'-s', info["num_shots"],
-			'-c', compiler
-		])
+			# gpuwrapper.sh parses leading "-h"/"-v" as its OWN flags via
+			# getopts and stops at the first non-option argument, so the
+			# target executable must come first (not after a "-v") for the
+			# rest of executable_args to be forwarded to it intact.
+			executable_args = [circuit_runner] + executable_args
 
 		cmd = build_mpi_command_string(
 			executable,

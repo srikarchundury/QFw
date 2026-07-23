@@ -769,12 +769,12 @@ def qfw_configure(config):
 		stream.write('    if [[ -z "${_QFW_ACTIVE:-}" ]]; then\n')
 		stream.write('        return 0\n')
 		stream.write('    fi\n\n')
-		if module_path:
-			stream.write(f'    module unload {module_file}\n')
-			stream.write(f'    module unuse {module_path}\n')
 		stream.write('    if [[ -x "${QFW_VENV_PATH}/bin/python3_defw_orig" ]] || [[ -x "${QFW_VENV_PATH}/bin/python3" ]]; then\n')
 		stream.write('        source "$QFW_SETUP_PATH/qfw_restore_venv.sh"\n')
 		stream.write('    fi\n\n')
+		if module_path:
+			stream.write(f'    module unload {module_file}\n')
+			stream.write(f'    module unuse {module_path}\n')
 		stream.write('    if declare -f deactivate >/dev/null 2>&1; then\n')
 		stream.write('        deactivate\n')
 		stream.write('    fi\n\n')

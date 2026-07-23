@@ -25,7 +25,19 @@ class QPM(UTIL_QPM):
 		if not api_key:
 			raise DEFwError("IONQ_API_KEY not set in environment!")
 
-		if os.environ.get("QFW_TRANSPILE_ONLY", "").strip() == "1":
+		if not start:
+			# The framework probes every registered service class with a
+			# disposable start=False instance (see BaseAgentAPI.query())
+			# purely to read static capability metadata via query(). That
+			# happens repeatedly (e.g. on every get_services() lookup), so
+			# it must stay cheap — never make the real network round-trip
+			# to IonQ's cloud API here, or every capability probe pays for
+			# a full provider/backends() fetch and starves real QPM
+			# reservation of the time it needs to register.
+			logging.debug("IONQ_QPM: start=False – skipping cloud provider init (metadata probe only)")
+			self.ionq_provider = None
+			self.backends = []
+		elif os.environ.get("QFW_TRANSPILE_ONLY", "").strip() == "1":
 			logging.info("IONQ_QPM: QFW_TRANSPILE_ONLY=1 – skipping cloud provider init")
 			self.ionq_provider = None
 			self.backends = []

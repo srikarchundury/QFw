@@ -43,19 +43,8 @@ services:
     agent-prefix: qpm_ibmq
     target: group1-head
 
-  - name: iqm-ornl-20q
-    module: svc_iqm_qpm
-    load-modules: svc_iqm_qpm,api_launcher
-    agent-prefix: qpm_iqm
-    target: group1-head
-    device-id: ornl-iqm-20q
-
-  # QRMI/QDMI bifurcation shim — parallel to svc_iqm_qpm, same IQM q20 device
-  # reached via QRMI / QDMI-on-IQM. Select this instead of iqm-ornl-20q to
-  # drive the resource through the shim.
-  - name: shim-ornl-20q
-    module: svc_lib_qpm
-    load-modules: svc_lib_qpm,api_launcher
-    agent-prefix: qpm_shim
-    target: group1-head
-    device-id: ornl-iqm-20q
+  # iqm-ornl-20q / shim-ornl-20q (upstream's IQM ORNL-20q demo services) are
+  # intentionally not registered here: we have no IQM hardware/host-group
+  # config in this deployment, and qfw_setup.py waits for every registered
+  # service to report started before continuing — a broken/unconfigured
+  # service here blocks every backend's startup, not just IQM's.

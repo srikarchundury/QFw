@@ -4,6 +4,7 @@ from time import sleep
 
 import defw
 from defw_app_util import defw_get_resource_mgr, SYSTEM_UP_TIMEOUT
+from defw_common_def import set_rpc_timeout, get_rpc_timeout
 from defw_exception import DEFwReserveError
 
 # Which QPM implementation to use when more than one is registered for the
@@ -18,7 +19,16 @@ QPM_IMPL_ENV = "QFW_QPM_IMPL"
 DEFAULT_QPM_IMPL = "iqm"
 
 
-def _reserve_qpm(rmgr, qpm_type, qpm_cap, timeout=SYSTEM_UP_TIMEOUT):
+# Cloud QPM services (IonQ, IBM-Q) make a real network call to the
+# provider's API during their own startup (fetching the backend list), which
+# is slower and more variable than local simulator services. The default
+# SYSTEM_UP_TIMEOUT (40s) is tuned for local service startup and can expire
+# before a cloud QPM finishes registering with the resource manager, even
+# though the service itself starts successfully a little later.
+QPM_RESERVE_TIMEOUT = max(SYSTEM_UP_TIMEOUT, 90)
+
+
+def _reserve_qpm(rmgr, qpm_type, qpm_cap, timeout=QPM_RESERVE_TIMEOUT):
 	want = os.environ.get(QPM_IMPL_ENV, DEFAULT_QPM_IMPL)
 
 	infos = []
@@ -48,7 +58,18 @@ def _reserve_qpm(rmgr, qpm_type, qpm_cap, timeout=SYSTEM_UP_TIMEOUT):
 			f"{len(infos)} match(es)")
 		chosen = infos
 
-	return defw.connect_to_resource(chosen, 'QPM')[0]
+	# Real instantiation of a cloud QPM (IonQ/IBM-Q) does provider auth and
+	# a backends() fetch over a real network round-trip in __init__, which
+	# can take longer than DEFw's default 300s RPC timeout. Bump it for
+	# this specific instantiate_class RPC and restore the previous value
+	# right after, so a longer allowance here doesn't mask genuine hangs
+	# in unrelated RPCs elsewhere in the same process.
+	prev_timeout = get_rpc_timeout()
+	try:
+		set_rpc_timeout(max(prev_timeout, 600))
+		return defw.connect_to_resource(chosen, 'QPM')[0]
+	finally:
+		set_rpc_timeout(prev_timeout)
 
 
 def test_qpm(qpm_api):

@@ -35,6 +35,10 @@ class QRC(UTIL_QRC):
 		if not out_str:
 			raise DEFwError({"Error": "Empty output!"})
 
+		# Other stdout lines (warnings, deprecation notices, etc.) can
+		# coincidentally contain both "counts" and "=" as plain words, so
+		# don't stop at the first match — only accept a line that actually
+		# parses to a dict.
 		counts = None
 		for line in out_str.splitlines():
 			# expected: counts = {...}
@@ -42,13 +46,15 @@ class QRC(UTIL_QRC):
 				continue
 			try:
 				payload = line.split("=", 1)[1].strip()
-				counts = yaml.safe_load(payload)
+				parsed = yaml.safe_load(payload)
+			except Exception:
+				continue
+			if isinstance(parsed, dict):
+				counts = parsed
 				break
-			except Exception as e:
-				raise DEFwError({"Error": f"Failed to parse counts line: {e}", "line": line})
 
 		if counts is None:
-			raise DEFwError({"Error": "No 'counts = ...' line found in output", "raw": out_str})
+			raise DEFwError({"Error": "No 'counts = {...}' line found in output", "raw": out_str})
 
 		t1 = perf_counter()
 		logging.debug(f"QTENSOR_QRC: parse_result took {t1 - t0:.6f}s")
@@ -61,7 +67,7 @@ class QRC(UTIL_QRC):
 		return info.get("qpm_options", {}) or {}
 
 	def _get_backend_choice(self, info):
-		allowed = {"cupy", "numpy", "pytorch"}
+		allowed = {"cupy", "numpy", "torch"}
 		qpm_opts = self._get_qpm_options(info)
 
 		backend = str(qpm_opts.get("backend", "numpy")).lower()

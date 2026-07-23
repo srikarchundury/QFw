@@ -130,6 +130,15 @@ class QFwJob(Job):
 		return sample
 
 	def _split_result_payload(self, output):
+		if isinstance(output, dict) and "error" in output and (
+			"counts" not in output and "statevector" not in output):
+			# QRC-side execution/parsing failure (see util_qrc.py
+			# check_active_tasks/runner). Fail loudly here instead of
+			# silently feeding the error payload through as if it were
+			# real counts data — that surfaces as a confusing Counts()
+			# crash several calls downstream instead of the real cause.
+			raise DEFwError(f"Circuit execution/parsing failed: {output['error']}")
+
 		if isinstance(output, dict) and (
 			"counts" in output or "statevector" in output):
 			counts = output.get("counts", {})

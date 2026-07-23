@@ -35,7 +35,10 @@ class QRC(UTIL_QRC):
 		if not out_str:
 			raise DEFwError({"Error": "Empty output!"})
 
-		# Expected line contains: counts = {...}
+		# Expected line contains: counts = {...}. Other stdout lines (Qiskit/
+		# Aer warnings, deprecation notices, etc.) can coincidentally contain
+		# both "counts" and "=" as plain words, so don't stop at the first
+		# match — only accept a line that actually parses to a dict.
 		counts = None
 		for line in out_str.splitlines():
 			if "counts" not in line:
@@ -44,13 +47,15 @@ class QRC(UTIL_QRC):
 				continue
 			try:
 				payload = line.split("=", 1)[1].strip()
-				counts = yaml.safe_load(payload)
+				parsed = yaml.safe_load(payload)
+			except Exception:
+				continue
+			if isinstance(parsed, dict):
+				counts = parsed
 				break
-			except Exception as e:
-				raise DEFwError({"Error": f"Failed to parse counts line: {e}", "line": line})
 
 		if counts is None:
-			raise DEFwError({"Error": "No 'counts = ...' line found in output", "raw": out_str})
+			raise DEFwError({"Error": "No 'counts = {...}' line found in output", "raw": out_str})
 
 		t1 = perf_counter()
 		logging.debug(f"QISKITAER_QRC: parse_result took {t1 - t0:.6f}s")

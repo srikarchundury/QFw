@@ -1,0 +1,216 @@
+#!/usr/bin/env bash
+# QFW activate (must be sourced)
+
+if [[ -n "${_QFW_ACTIVE:-}" ]]; then
+    echo "QFW environment already active"
+    return 0
+fi
+
+export _QFW_OLD_PWD="$PWD"
+export _QFW_ACTIVE=1
+export _QFW_OLD_CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}"
+export _QFW_OLD_PE_PRODUCT_LIST="${PE_PRODUCT_LIST:-}"
+export _QFW_OLD_PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}"
+export _QFW_OLD_PE_PKGCONFIG_LIBS="${PE_PKGCONFIG_LIBS:-}"
+export _QFW_OLD_PATH="${PATH:-}"
+export _QFW_OLD_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+export _QFW_OLD_PYTHONPATH="${PYTHONPATH:-}"
+export _QFW_OLD_BLASLIB="${BLASLIB:-}"
+export _QFW_OLD_BLAS_LIB_DIR="${BLAS_LIB_DIR:-}"
+export _QFW_OLD_ACLOCAL_PATH="${ACLOCAL_PATH:-}"
+if [[ -v QRMI_PREFIX ]]; then
+    export _QFW_OLD_QRMI_PREFIX="$QRMI_PREFIX"
+    export _QFW_OLD_QRMI_PREFIX_SET=1
+else
+    export _QFW_OLD_QRMI_PREFIX=""
+    unset _QFW_OLD_QRMI_PREFIX_SET
+fi
+if [[ -v PS1 ]]; then
+    export _QFW_OLD_PS1="$PS1"
+    export _QFW_OLD_PS1_SET=1
+else
+    export _QFW_OLD_PS1=""
+    unset _QFW_OLD_PS1_SET
+fi
+if [[ -v VIRTUAL_ENV_DISABLE_PROMPT ]]; then
+    export _QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT="$VIRTUAL_ENV_DISABLE_PROMPT"
+    export _QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT_SET=1
+else
+    export _QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT=""
+    unset _QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT_SET
+fi
+export QFW_MASTER_SETUP_BASE_DIR="/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related"
+export QFW_RUNTIME_MODE="cluster"
+export QFW_SERVICE_RUNTIME_CONFIG="/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/QFw/services/config/frontier.yaml"
+export QFW_MPI_TRANSPORT_MODE="ofi"
+export QFW_DEP_BUILD_VERSION="ORNL_STACK_with_PEPS"
+if [[ -z "${QFW_DEP_BUILD_VERSION:-}" ]]; then
+    echo "ERROR: QFW_DEP_BUILD_VERSION is not set. Re-run qfw_configure with qfw-dep-build-version or generate-dep-build-version enabled." >&2
+    unset _QFW_ACTIVE
+    return 1
+fi
+
+export QFW_QPU_LIB_BUILD_DIR="${QFW_QPU_LIB_BUILD_DIR:-/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/build/ORNL_STACK_with_PEPS/qpu-libs}"
+export QFW_QRMI_REPO="${QFW_QRMI_REPO:-https://github.com/qiskit-community/qrmi.git}"
+export QFW_QRMI_REF="${QFW_QRMI_REF:-0.17.2}"
+export QFW_QRMI_PREFIX="${QFW_QRMI_PREFIX:-/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/install/ORNL_STACK_with_PEPS/QRMI}"
+export QFW_QRMI_SRC_DIR="${QFW_QRMI_SRC_DIR:-/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/build/ORNL_STACK_with_PEPS/qpu-libs/qrmi}"
+export QFW_MQT_CORE_REPO="${QFW_MQT_CORE_REPO:-https://github.com/munich-quantum-toolkit/core.git}"
+export QFW_MQT_CORE_REF="${QFW_MQT_CORE_REF:-v3.6.1}"
+export QFW_MQT_CORE_SRC_DIR="${QFW_MQT_CORE_SRC_DIR:-/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/build/ORNL_STACK_with_PEPS/qpu-libs/mqt-core}"
+export QFW_MQT_CORE_PRETEND_VERSION="${QFW_MQT_CORE_PRETEND_VERSION:-}"
+export QFW_IQM_QDMI_REPO="${QFW_IQM_QDMI_REPO:-https://github.com/iqm-finland/QDMI-on-IQM.git}"
+export QFW_IQM_QDMI_REF="${QFW_IQM_QDMI_REF:-v1.1.1}"
+export QFW_IQM_QDMI_SRC_DIR="${QFW_IQM_QDMI_SRC_DIR:-/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/build/ORNL_STACK_with_PEPS/qpu-libs/QDMI-on-IQM}"
+export QFW_QRMI_PYTHON_PACKAGE="${QFW_QRMI_PYTHON_PACKAGE:-qrmi==${QFW_QRMI_REF}}"
+export QRMI_PREFIX="${QRMI_PREFIX:-${QFW_QRMI_PREFIX}}"
+if [[ -d "${QRMI_PREFIX}/lib" ]]; then
+    export LD_LIBRARY_PATH="${QRMI_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+fi
+
+export _QFW_USED_MODULES=1
+module use /lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/modules
+module load quantum/qsim
+ml
+export BLAS_LIB_DIR=$(pkg-config --variable=libdir openblas)
+export QFW_VENV_PATH=/lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/qfwVirtEnv
+export VIRTUAL_ENV_DISABLE_PROMPT=1
+source /lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/qfwVirtEnv/bin/activate
+
+source /lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/QFw/environment/qfw_set_envvars.sh
+if [[ -n "${QFW_EXTRA_PATHS:-}" ]]; then
+    IFS=':' read -r -a _qfw_extra_paths <<< "${QFW_EXTRA_PATHS}"
+    for _qfw_path in "${_qfw_extra_paths[@]}"; do
+        [[ -n "${_qfw_path}" ]] || continue
+        export PATH="${_qfw_path}:${PATH}"
+    done
+    unset _qfw_path _qfw_extra_paths
+fi
+if [[ -n "${QFW_EXTRA_LIBPATHS:-}" ]]; then
+    IFS=':' read -r -a _qfw_extra_libpaths <<< "${QFW_EXTRA_LIBPATHS}"
+    for _qfw_libpath in "${_qfw_extra_libpaths[@]}"; do
+        [[ -n "${_qfw_libpath}" ]] || continue
+        export LD_LIBRARY_PATH="${_qfw_libpath}:${LD_LIBRARY_PATH}"
+    done
+    unset _qfw_libpath _qfw_extra_libpaths
+fi
+if [[ -n "${QFW_CONTAINER_FALLBACK_PATHS:-}" ]]; then
+    IFS=':' read -r -a _qfw_fallback_paths <<< "${QFW_CONTAINER_FALLBACK_PATHS}"
+    for _qfw_path in "${_qfw_fallback_paths[@]}"; do
+        [[ -n "${_qfw_path}" ]] || continue
+        export PATH="${PATH}:${_qfw_path}"
+    done
+    unset _qfw_path _qfw_fallback_paths
+fi
+if [[ -n "${QFW_CONTAINER_FALLBACK_LIBPATHS:-}" ]]; then
+    IFS=':' read -r -a _qfw_fallback_libpaths <<< "${QFW_CONTAINER_FALLBACK_LIBPATHS}"
+    for _qfw_libpath in "${_qfw_fallback_libpaths[@]}"; do
+        [[ -n "${_qfw_libpath}" ]] || continue
+        export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:+${LD_LIBRARY_PATH}:}${_qfw_libpath}"
+    done
+    unset _qfw_libpath _qfw_fallback_libpaths
+fi
+if ! source "$QFW_SETUP_PATH/qfw_venv.sh"; then
+    unset _QFW_ACTIVE
+    return 1 2>/dev/null || exit 1
+fi
+if [[ "${_QFW_OLD_PS1_SET:-}" == "1" ]]; then
+    export PS1="(qfw) ${_QFW_OLD_PS1}"
+fi
+export PYTHON_PATH=$(which python3)
+cd "$_QFW_OLD_PWD"
+
+qfw_deactivate() {
+    if [[ -z "${_QFW_ACTIVE:-}" ]]; then
+        return 0
+    fi
+
+    if [[ -x "${QFW_VENV_PATH}/bin/python3_defw_orig" ]] || [[ -x "${QFW_VENV_PATH}/bin/python3" ]]; then
+        source "$QFW_SETUP_PATH/qfw_restore_venv.sh"
+    fi
+
+    module unload quantum/qsim
+    module unuse /lustre/orion/gen006/proj-shared/qhpc/srikar/qfw_related/modules
+    if declare -f deactivate >/dev/null 2>&1; then
+        deactivate
+    fi
+
+    if [[ "${_QFW_OLD_PS1_SET:-}" == "1" ]]; then
+        export PS1="$_QFW_OLD_PS1"
+    else
+        unset PS1
+    fi
+    if [[ "${_QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT_SET:-}" == "1" ]]; then
+        export VIRTUAL_ENV_DISABLE_PROMPT="$_QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT"
+    else
+        unset VIRTUAL_ENV_DISABLE_PROMPT
+    fi
+
+    export CMAKE_PREFIX_PATH=$_QFW_OLD_CMAKE_PREFIX_PATH
+    export PE_PRODUCT_LIST=$_QFW_OLD_PE_PRODUCT_LIST
+    export PKG_CONFIG_PATH=$_QFW_OLD_PKG_CONFIG_PATH
+    export PE_PKGCONFIG_LIBS=$_QFW_OLD_PE_PKGCONFIG_LIBS
+    export PATH="$_QFW_OLD_PATH"
+    export LD_LIBRARY_PATH="$_QFW_OLD_LD_LIBRARY_PATH"
+    export PYTHONPATH="$_QFW_OLD_PYTHONPATH"
+
+    export BLASLIB=$_QFW_OLD_BLASLIB
+    export BLAS_LIB_DIR=$_QFW_OLD_BLAS_LIB_DIR
+    export ACLOCAL_PATH=$_QFW_OLD_ACLOCAL_PATH
+    if [[ "${_QFW_OLD_QRMI_PREFIX_SET:-}" == "1" ]]; then
+        export QRMI_PREFIX="$_QFW_OLD_QRMI_PREFIX"
+    else
+        unset QRMI_PREFIX
+    fi
+    unset GCC_PATH
+    unset GCC_PREFIX
+    unset _QFW_ACTIVE
+    unset _QFW_USED_MODULES
+    unset _QFW_OLD_PATH
+    unset _QFW_OLD_LD_LIBRARY_PATH
+    unset _QFW_OLD_PYTHONPATH
+    unset _QFW_OLD_PWD
+    unset _QFW_OLD_PS1
+    unset _QFW_OLD_PS1_SET
+    unset _QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT
+    unset _QFW_OLD_VIRTUAL_ENV_DISABLE_PROMPT_SET
+    unset _QFW_OLD_QRMI_PREFIX
+    unset _QFW_OLD_QRMI_PREFIX_SET
+    unset QFW_MASTER_SETUP_BASE_DIR
+    unset QFW_DEP_BUILD_VERSION
+    unset QFW_RUNTIME_MODE
+    unset QFW_SERVICE_RUNTIME_CONFIG
+    unset QFW_MPI_TRANSPORT_MODE
+    unset QFW_MASTER_SETUP_TMP_DIR
+    unset QFW_EXTRA_PATHS
+    unset QFW_EXTRA_LIBPATHS
+    unset QFW_CONTAINER_FALLBACK_PATHS
+    unset QFW_CONTAINER_FALLBACK_LIBPATHS
+    unset QFW_JOB_ID
+    unset QFW_HET_GROUP
+    unset QFW_ALLOCATION_MODE
+    unset QFW_GROUP_0_NODELIST
+    unset QFW_GROUP_1_NODELIST
+    unset QFW_GROUPS
+    unset QFW_MASTER_SETUP_MPI_INSTALL
+    unset QFW_MASTER_SETUP_LIBFABRIC_INSTALL
+
+    unset QFW_QPU_LIB_BUILD_DIR
+    unset QFW_QRMI_REPO
+    unset QFW_QRMI_REF
+    unset QFW_QRMI_PREFIX
+    unset QFW_QRMI_SRC_DIR
+    unset QFW_QRMI_PYTHON_PACKAGE
+    unset QFW_MQT_CORE_REPO
+    unset QFW_MQT_CORE_REF
+    unset QFW_MQT_CORE_SRC_DIR
+    unset QFW_MQT_CORE_PRETEND_VERSION
+    unset QFW_IQM_QDMI_REPO
+    unset QFW_IQM_QDMI_REF
+    unset QFW_IQM_QDMI_SRC_DIR
+
+    unset QFW_VENV_PATH
+    unset PYTHON_PATH
+
+    unset -f qfw_deactivate
+}

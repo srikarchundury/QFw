@@ -69,8 +69,13 @@ class UTIL_QRC:
 
 		We attach to BOTH:
 		  - the outer dict
-		  - the inner "result" dict (if present)
-		so even if callers only forward `result`, metrics survive.
+		  - the inner "result" dict, but ONLY if it's a wrapper dict (has a
+		    "counts"/"statevector" key already) rather than a raw
+		    bitstring -> count mapping. Several backends (e.g. nwqsim)
+		    return the counts dict directly as r["result"] with no wrapper;
+		    injecting "qbacmet_metrics" into that dict would corrupt the
+		    counts themselves (a bitstring key whose "count" is a metrics
+		    dict), breaking result parsing downstream.
 		"""
 		try:
 			m = collector.metrics
@@ -85,7 +90,7 @@ class UTIL_QRC:
 			if isinstance(r, dict):
 				r["qbacmet_metrics"] = m
 				res = r.get("result", None)
-				if isinstance(res, dict):
+				if isinstance(res, dict) and ("counts" in res or "statevector" in res):
 					res["qbacmet_metrics"] = m
 		except Exception as e:
 			# Never let metrics attachment break normal flow
@@ -133,14 +138,18 @@ class UTIL_QRC:
 
 						circ.set_exec_done()
 					except Exception as e:
+						# A real dict with an "error" key, NOT a string that merely
+						# looks like one — callers (qfw_job.py) key off "error" to
+						# raise a clear failure instead of silently treating this
+						# as counts data (which corrupts downstream Counts()).
 						logging.critical(f"parse result failure = {e}")
-						output = "{result: missing, exception: " + f"{e}" + "}"
+						output = {"error": f"parse result failure: {e}"}
 						circ.set_fail()
 				else:
-					stdout = stdout.decode('utf-8')
-					stderr = stderr.decode('utf-8')
-					res = stdout + '\n' + stderr
-					output = "{result: " + f"{res}" + "}"
+					stdout_s = stdout.decode('utf-8', errors='replace')
+					stderr_s = stderr.decode('utf-8', errors='replace')
+					logging.critical(f"circuit execution failed rc={rc}: stdout={stdout_s} stderr={stderr_s}")
+					output = {"error": f"circuit execution failed (rc={rc}): {stdout_s}\n{stderr_s}"}
 					circ.set_fail()
 			finally:
 				self.cleanup_task(circ, task_info)
@@ -228,7 +237,9 @@ class UTIL_QRC:
 					logging.critical(
 						f"Async circuit {circ.get_cid()} failed before launch: {e}")
 					circ.set_fail()
-					result = f"{type(e).__name__}: {e}"
+					# A real dict with an "error" key, not a string that merely
+					# looks like one (see check_active_tasks for why).
+					result = {"error": f"{type(e).__name__}: {e}"}
 					rc = -1
 					pass
 
