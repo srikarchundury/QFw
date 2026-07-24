@@ -11,7 +11,7 @@ parser.add_argument("-q", "--qasm_file", required=True)
 parser.add_argument("-s", "--shots", default=1024, type=int)
 parser.add_argument("-b", "--backend", default="automatic")
 parser.add_argument("-d", "--device", default="CPU")
-parser.add_argument("--blocking_qubits", default=2, type=int)
+parser.add_argument("--blocking_qubits", default=None, type=int)
 parser.add_argument("--seed", default=42, type=int, help="Consistent random seed for all processes")
 args = parser.parse_args()
 
@@ -26,11 +26,21 @@ simulator = AerSimulator(
 	device=args.device
 )
 
+# blocking_qubits controls how finely Aer splits the statevector into
+# chunks (relevant for multi-GPU/multi-node distributed execution). A fixed
+# small default (e.g. 2, meaning 4-amplitude chunks) segfaults Aer for
+# anything beyond trivially small/shallow circuits -- reproduced locally: a
+# 16-qubit, depth-199 circuit crashes with blocking_qubits=2 but runs fine
+# with blocking_qubits>=10. Default to the circuit's own qubit count (a
+# single chunk covering the whole statevector, i.e. no sub-chunking) unless
+# a caller explicitly requests finer-grained chunking.
+blocking_qubits = args.blocking_qubits if args.blocking_qubits is not None else qc.num_qubits
+
 result = simulator.run(
 	qc,
 	shots = args.shots,
 	blocking_enable = True,
-	blocking_qubits = args.blocking_qubits
+	blocking_qubits = blocking_qubits
 ).result()
 
 meta = result.to_dict().get('metadata', {})

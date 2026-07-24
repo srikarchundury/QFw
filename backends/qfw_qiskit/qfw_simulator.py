@@ -1,3 +1,4 @@
+import os
 import time
 import logging
 import threading
@@ -73,7 +74,13 @@ EVENT_TYPE_CIRC_RESULT = 1
 class QFwBackend(BackendV2):
 	BACKEND_NAME = "QFw Backend"
 	BACKEND_VERSION = "1.0"
-	COMPLETION_TIMEOUT_SEC = 200
+	# Client-side wait for circuit results (qfw_job.py's _result_reader).
+	# Real ionq/ibmq hardware queue times can easily exceed the 200s
+	# default (confirmed: a real ibm_boston job was still genuinely queued
+	# on IBM's API when this timeout fired) -- settable via env var so
+	# hardware runs can wait longer without changing the default for
+	# local simulator backends, which complete in milliseconds.
+	COMPLETION_TIMEOUT_SEC = int(os.environ.get("QFW_FORCE_COMPLETION_TIMEOUT", 200))
 
 	def __init__(self, betype=-1, capability=-1, target=None, properties=None,
 				 num_qubits=QFW_NUM_QUBITS):

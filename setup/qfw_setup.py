@@ -73,7 +73,20 @@ def qfw_remote_run_prefix(tmp_dir):
 				'QFW_ALLOCATION_MODE',
 				'QFW_GROUP_0_NODELIST',
 				'QFW_GROUP_1_NODELIST',
-				'QFW_GROUPS']:
+				'QFW_GROUPS',
+				# This is the first hop across the SSH/paramiko boundary
+				# (execute_runtime_command always goes remote once
+				# QFW_ALLOCATION_MODE=heterogeneous, even for host ==
+				# socket.gethostname()) -- the remote qfw_setup.py process
+				# only sees what's explicitly re-exported here. Without
+				# these two, get_external_defw_env()'s own allowlist (used
+				# later when spawning each QPM/QRC service) has nothing to
+				# forward, since os.environ on the remote side never had
+				# them in the first place.
+				'QFW_FORCE_NP',
+				'QFW_TRANSPILE_ONLY',
+				'QFW_FORCE_MAP_BY',
+				'QFW_FORCE_BIND_TO']:
 		if key in os.environ:
 			exports.append(f'export {key}={shlex.quote(os.environ[key])}')
 	exports.append(f'export QFW_RUN_TMP_PATH={shlex.quote(tmp_dir)}')
@@ -112,7 +125,20 @@ def get_external_defw_env():
 				'QFW_ALLOCATION_MODE',
 				'QFW_GROUP_0_NODELIST',
 				'QFW_GROUP_1_NODELIST',
-				'QFW_GROUPS']:
+				'QFW_GROUPS',
+				# Benchmarking/behavior overrides read directly from
+				# os.environ by the QPM/QRC services themselves (e.g.
+				# util_circuit.py's QFW_FORCE_NP, svc_ionq_qpm/svc_ibmq_qpm's
+				# QFW_TRANSPILE_ONLY). Without being forwarded here, a caller
+				# exporting these in the top-level job script has no effect:
+				# start_service()/start_resmgr() build each service's env
+				# from scratch (not a full os.environ copy) and only let
+				# through what this allowlist names, so the service process
+				# on the group1 node never sees them.
+				'QFW_FORCE_NP',
+				'QFW_TRANSPILE_ONLY',
+				'QFW_FORCE_MAP_BY',
+				'QFW_FORCE_BIND_TO']:
 		if key in os.environ:
 			env[key] = os.environ[key]
 	return env

@@ -194,6 +194,19 @@ class QFwJob(Job):
 		qpm_results = self._result_reader(self._cid_list)
 		self._result_wait_time = time.time() - res_wait_start
 
+		if not qpm_results:
+			# Most commonly: the circuit could never be scheduled (e.g. it
+			# requested more processes than any single assigned host can
+			# satisfy) and is stuck in the QPM's out-of-resources queue
+			# forever, rather than raising -- surface that clearly instead
+			# of an UnboundLocalError from referencing `out` below with an
+			# empty loop.
+			raise DEFwError(
+				"No results returned for this job -- the circuit may be "
+				"stuck in the QPM's out-of-resources queue (requested more "
+				"processes than an assigned host can provide)."
+			)
+
 		for qr in qpm_results:
 			res = qr['res']
 			self._backend.log_statistics(res)

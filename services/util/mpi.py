@@ -114,11 +114,18 @@ def build_mpi_command(executable, executable_args=None, np=1, hosts=None,
 			continue
 		cmd.extend(['--mca', str(key), str(value)])
 
-	map_by = mpi_config.get('map-by', None)
+	# QFW_FORCE_MAP_BY/QFW_FORCE_BIND_TO are benchmarking overrides,
+	# analogous to QFW_FORCE_NP (util_circuit.py). frontier.yaml's default
+	# `map-by: ppr:1:l3cache` caps single-node process count at the number
+	# of L3 cache domains (8 on Frontier) -- OpenMPI refuses to spawn more
+	# ranks than that under this policy (PMIX_ERR_JOB_FAILED_TO_MAP), so a
+	# forced np beyond 8 needs a finer-grained policy (e.g. "core") to fit
+	# on one node at all.
+	map_by = os.environ.get('QFW_FORCE_MAP_BY', '').strip() or mpi_config.get('map-by', None)
 	if map_by:
 		cmd.extend(['--map-by', str(map_by)])
 
-	bind_to = mpi_config.get('bind-to', None)
+	bind_to = os.environ.get('QFW_FORCE_BIND_TO', '').strip() or mpi_config.get('bind-to', None)
 	if bind_to:
 		cmd.extend(['--bind-to', str(bind_to)])
 

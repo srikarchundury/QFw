@@ -23,6 +23,22 @@ class UTIL_QPM:
 		self.circuit_results = []
 		self.qrc = qrc
 		self.free_hosts = {}
+
+		# QFW_FORCE_NP (util_circuit.py:setup_circuit_run_details) is a
+		# deliberate benchmarking override that forces every circuit on this
+		# QPM to request a specific process count. free_hosts capacity below
+		# is fixed once at service startup from max_ppn and never revisited
+		# per-circuit, so a forced np bigger than the default MAX_PPN (8)
+		# needs more hosts than a single-node benchmarking run actually has
+		# assigned -- consume_resources() then permanently queues the
+		# circuit as out-of-resources (it can never be satisfied, since no
+		# second host will ever appear) instead of erroring. Widen the
+		# per-host capacity to match, since this is a request to run more
+		# local processes on the same node, not a request for more nodes.
+		forced_np = os.environ.get('QFW_FORCE_NP', '').strip()
+		if forced_np:
+			max_ppn = max(max_ppn, int(forced_np))
+
 		self.max_ppn = max_ppn
 		if start:
 			# The framework probes every registered service class with a
