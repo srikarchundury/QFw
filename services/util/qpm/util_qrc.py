@@ -13,8 +13,12 @@ import svc_launcher
 import cdefw_global
 
 from time import perf_counter
+from collections import OrderedDict
 
-from qbacmet import collector
+from qbacmet import collector, QBacMetCollector  # noqa: F401  (collector: used by subclasses)
+
+# QBacMet collections kept for circuits still running; bounded so abandoned circuits cannot grow it forever
+QBACMET_MAX_PENDING = 10000
 
 sys.path.append(os.path.split(os.path.abspath(__file__))[0])
 
@@ -30,6 +34,8 @@ class UTIL_QRC:
 		self.circuit_results_lock = threading.Lock()
 		self.worker_pool_lock = threading.Lock()
 		self.circuit_results = []
+		self._qbacmet = OrderedDict()          # cid -> QBacMetCollector of that circuit
+		self._qbacmet_lock = threading.Lock()
 		self.push_info = {}
 		self.module_util = None
 		self.worker_pool = []
@@ -63,39 +69,106 @@ class UTIL_QRC:
 	# -------------------------
 	# QBacMet helper
 	# -------------------------
+	def _remember_collection(self, circ, qm):
+		"""Keep this circuit's QBacMet collection until its result is built (in whichever thread)."""
+		with self._qbacmet_lock:
+			self._qbacmet[circ.get_cid()] = qm
+			while len(self._qbacmet) > QBACMET_MAX_PENDING:
+				self._qbacmet.popitem(last=False)
+
+	def _forget_collection(self, circ):
+		with self._qbacmet_lock:
+			self._qbacmet.pop(circ.get_cid(), None)
+
+	def _collection(self, cid):
+		with self._qbacmet_lock:
+			return self._qbacmet.get(cid)
+
+	def _qbacmet_backend_features(self, circ):
+		"""Layer-3 facts the QRC knows for a locally launched circuit."""
+		info = circ.info
+		opts = info.get("qpm_options", {}) or {}
+		qb = info.get("qfw_backend")
+		hosts = info.get("hosts") or {}
+		feats = {
+			"qpm": type(self).__module__,
+			"qfw_backend": qb if isinstance(qb, str) else type(qb).__name__,
+			"backend_label": qb.rsplit(".", 1)[-1] if isinstance(qb, str) else None,
+			"sub_backend": opts.get("backend") or info.get("backend"),
+			"method": info.get("method"),
+			"device": opts.get("device"),
+			"np": info.get("np"),
+			"np_policy": info.get("np_policy"),
+			"num_hosts": len(hosts) if isinstance(hosts, dict) else None,
+			"hosts": hosts,
+			"qpm_options": opts,
+		}
+		if info.get("mqbac"):
+			feats["mqbac"] = info["mqbac"]
+		return feats
+
+	def _start_collection(self, circ):
+		"""Local backends run a separate executable, so library hooks see nothing: record what the QRC knows
+		(circuit from its QASM, backend, processes) explicitly. Timing is added when the result is built."""
+		qm = QBacMetCollector()
+		try:
+			with qm.collect(hooks=False):
+				qm.set_algorithm_from_qasm(circ.info.get("qasm", "") or "", shots=circ.info.get("num_shots"))
+				qm.set_backend_features(**self._qbacmet_backend_features(circ))
+				qm.execution_layer.metrics["mpi_size"] = circ.info.get("np")
+		except Exception as e:
+			logging.debug("UTIL_QRC: QBacMet collection setup failed: %s", e)
+		self._remember_collection(circ, qm)
+		return qm
+
 	def _attach_metrics(self, r):
 		"""
-		Attach qbacmet collector.metrics into the result dict (best-effort).
+		Attach this circuit's QBacMet metrics to a result dict.
 
-		We attach to BOTH:
-		  - the outer dict
-		  - the inner "result" dict, but ONLY if it's a wrapper dict (has a
-		    "counts"/"statevector" key already) rather than a raw
-		    bitstring -> count mapping. Several backends (e.g. nwqsim)
-		    return the counts dict directly as r["result"] with no wrapper;
-		    injecting "qbacmet_metrics" into that dict would corrupt the
-		    counts themselves (a bitstring key whose "count" is a metrics
-		    dict), breaking result parsing downstream.
+		The metrics come from the circuit's own collection (looked up by cid), never from whatever collection
+		ran last in this thread: results are built in worker threads, possibly while other circuits run. A
+		final result (has "rc") also gets the circuit's timeline (wait for resources, launch, execution) and
+		releases the collection.
+
+		Attached to the outer dict, and to the inner "result" only when that is a wrapper dict (has
+		"counts"/"statevector"); several backends return the bare counts dict as r["result"], and a metrics key
+		inside it would corrupt the counts. QFw's job object forwards the outer copy (qfw_job.py).
 		"""
 		try:
-			m = collector.metrics
-			if not isinstance(m, dict) or not m:
+			if not isinstance(r, dict):
 				return r
-
-			logging.debug(
-				"UTIL_QRC: _attach_metrics – attaching qbacmet metrics with top-level keys: %s",
-				list(m.keys()),
-			)
-
-			if isinstance(r, dict):
-				r["qbacmet_metrics"] = m
-				res = r.get("result", None)
-				if isinstance(res, dict) and ("counts" in res or "statevector" in res):
-					res["qbacmet_metrics"] = m
+			circ = r.get("circ")
+			cid = r.get("cid") or (circ.get_cid() if circ is not None else None)
+			final = "rc" in r
+			with self._qbacmet_lock:
+				qm = (self._qbacmet.pop(cid, None) if final else self._qbacmet.get(cid)) if cid else None
+			if qm is None:
+				return r
+			if final:
+				qm.set_timeline(created=r.get("creation_time"), resources_ready=r.get("resources_consumed_time"),
+				                launched=r.get("launch_time"), started=r.get("exec_time"),
+				                completed=r.get("completion_time"))
+				qm.execution_layer.metrics["return_code"] = r.get("rc")
+			m = qm.finalize()
+			r["qbacmet_metrics"] = m
+			res = r.get("result", None)
+			if isinstance(res, dict) and ("counts" in res or "statevector" in res):
+				res["qbacmet_metrics"] = m
 		except Exception as e:
 			# Never let metrics attachment break normal flow
 			logging.debug(f"UTIL_QRC: _attach_metrics – exception while attaching metrics: {e}")
 		return r
+
+	@staticmethod
+	def _note_result_dequeued(r):
+		"""Time the result waited in the completion queue, once the client takes it."""
+		try:
+			m = r.get("qbacmet_metrics")
+			if isinstance(m, dict) and r.get("cq_dequeue_time", -1) > 0:
+				ex = m.setdefault("execution", {}).setdefault("metrics", {})
+				ex["time_in_result_queue"] = r["cq_dequeue_time"] - r["cq_enqueue_time"]
+		except Exception:
+			pass
 
 	def parse_task_result(self, stdout, circ, task_info):
 		return self.parse_result(stdout)
@@ -129,12 +202,9 @@ class UTIL_QRC:
 						t_parse1 = perf_counter()
 						parse_time = t_parse1 - t_parse0
 
-						# minimal QBacMet injection for postprocess timing
-						try:
-							if getattr(collector, "collecting", False):
-								collector.postprocess_layer.metrics["result_marshalling_time"] = parse_time
-						except Exception as e:
-							logging.debug("UTIL_QRC: check_active_tasks – postprocess metrics injection failed: %s", e)
+						qm = self._collection(cid)
+						if qm is not None:
+							qm.postprocess_layer.metrics["result_marshalling_time"] = parse_time
 
 						circ.set_exec_done()
 					except Exception as e:
@@ -285,6 +355,7 @@ class UTIL_QRC:
 					if cid == e['cid']:
 						r = self.circuit_results.pop(i)
 						r['cq_dequeue_time'] = time.time()
+						self._note_result_dequeued(r)
 						return r
 					i += 1
 		else:
@@ -292,6 +363,7 @@ class UTIL_QRC:
 				if len(self.circuit_results) > 0:
 					r = self.circuit_results.pop(0)
 					r['cq_dequeue_time'] = time.time()
+					self._note_result_dequeued(r)
 					return r
 		return None
 
@@ -311,23 +383,15 @@ class UTIL_QRC:
 
 	def run_circuit_async(self, circ):
 		"""
-		Async entry point wrapped with qbacmet.collector so local-launch
-		QRCs also see a QBacMet context when used directly.
+		Async entry point. The circuit's QBacMet collection starts here and is finalized (with the run's
+		timeline) when check_active_tasks() builds its result.
 		"""
-		logging.debug("UTIL_QRC: run_circuit_async – entering collector.collect()")
-		with collector.collect():
-			info = self._run_circuit_async_internal(circ)
-			logging.debug(
-				"UTIL_QRC: run_circuit_async – inside collect, partial collector.metrics keys: %s",
-				list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-			)
-
-		logging.debug(
-			"UTIL_QRC: run_circuit_async – after collect, final collector.metrics keys: %s",
-			list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-		)
-		info = self._attach_metrics(info)
-		return info
+		self._start_collection(circ)
+		try:
+			return self._run_circuit_async_internal(circ)
+		except Exception:
+			self._forget_collection(circ)
+			raise
 
 	def _run_circuit_async_internal(self, circ):
 		cid = circ.get_cid()
@@ -360,23 +424,15 @@ class UTIL_QRC:
 
 	def run_circuit(self, circ):
 		"""
-		Sync entry point wrapped with qbacmet.collector so local-launch
-		QRCs also see a QBacMet context when used directly.
+		Sync entry point: the circuit's QBacMet collection starts here and is finalized with the result.
 		"""
-		logging.debug("UTIL_QRC: run_circuit – entering collector.collect()")
-		with collector.collect():
+		self._start_collection(circ)
+		try:
 			result = self._run_circuit_internal(circ)
-			logging.debug(
-				"UTIL_QRC: run_circuit – inside collect, partial collector.metrics keys: %s",
-				list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-			)
-
-		logging.debug(
-			"UTIL_QRC: run_circuit – after collect, final collector.metrics keys: %s",
-			list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-		)
-		result = self._attach_metrics(result)
-		return result
+		except Exception:
+			self._forget_collection(circ)
+			raise
+		return self._attach_metrics(result)
 
 	def _run_circuit_internal(self, circ):
 		cid = circ.get_cid()
@@ -403,12 +459,9 @@ class UTIL_QRC:
 			t_parse1 = perf_counter()
 			parse_time = t_parse1 - t_parse0
 
-			# minimal QBacMet injection for postprocess timing
-			try:
-				if getattr(collector, "collecting", False):
-					collector.postprocess_layer.metrics["result_marshalling_time"] = parse_time
-			except Exception as e:
-				logging.debug("UTIL_QRC: _run_circuit_internal – postprocess metrics injection failed: %s", e)
+			qm = self._collection(cid)
+			if qm is not None:
+				qm.postprocess_layer.metrics["result_marshalling_time"] = parse_time
 
 			launcher.shutdown()
 			logging.debug(f"Completed -- {cmd} -- returned {rc} -- {output} -- {error}")

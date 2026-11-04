@@ -212,6 +212,13 @@ class QFwJob(Job):
 			self._backend.log_statistics(res)
 			output = res.get("result", {})
 			counts, statevector, metadata = self._split_result_payload(output)
+			# QBacMet metrics travel on the outer QRC result (they cannot go inside a bare counts dict);
+			# pass them on with the QPM's timeline so applications receive them in the result metadata.
+			if isinstance(res.get("qbacmet_metrics"), dict):
+				metadata = dict(metadata, qbacmet_metrics=res["qbacmet_metrics"])
+			metadata = dict(metadata, qfw_timeline={
+				k: res.get(k) for k in ("creation_time", "resources_consumed_time", "launch_time", "exec_time",
+				                        "completion_time", "cq_enqueue_time", "cq_dequeue_time")})
 
 			out = {
 				"counts": counts,

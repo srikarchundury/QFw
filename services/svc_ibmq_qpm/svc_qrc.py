@@ -24,46 +24,7 @@ class QRC(UTIL_QRC):
 		raise DEFwError("IBMQ_QRC(Runtime) does not use local command execution!")
 
 	# -------------------------
-	# Metrics helper
-	# -------------------------
-	def _attach_metrics(self, r):
-		"""
-		Attach qbacmet collector metrics into the result dict (best-effort).
-
-		Critical: we attach to BOTH the outer dict and the inner "result"
-		dict, but ONLY if "result" is a wrapper dict (has a "counts" key
-		already) rather than the raw bitstring -> count mapping returned
-		directly. Injecting "qbacmet_metrics" into that flat dict would
-		corrupt the counts themselves (a bitstring key whose "count" is a
-		metrics dict), breaking result parsing downstream.
-		"""
-		try:
-			m = collector.metrics
-			if not isinstance(m, dict) or not m:
-				logging.debug("IBMQ_QRC(Runtime): _attach_metrics – collector.metrics empty or not dict, skipping attach")
-				return r
-
-			logging.debug(
-				"IBMQ_QRC(Runtime): _attach_metrics – attaching qbacmet metrics with top-level keys: %s",
-				list(m.keys()),
-			)
-
-			if isinstance(r, dict):
-				# top-level
-				r["qbacmet_metrics"] = m
-
-				# also inside the "result" payload, but only if it's a
-				# wrapper dict, not the flat counts dict itself
-				res = r.get("result", None)
-				if isinstance(res, dict) and ("counts" in res or "statevector" in res):
-					res["qbacmet_metrics"] = m
-		except Exception as e:
-			# Never let metrics attachment break normal flow
-			logging.debug(f"IBMQ_QRC(Runtime): _attach_metrics – exception while attaching metrics: {e}")
-		return r
-
-	# -------------------------
-	# Return helpers
+	# Return helpers (QBacMet metrics are attached by UTIL_QRC._attach_metrics)
 	# -------------------------
 	def _ok_ret(self, circ, result):
 		r = {
@@ -351,7 +312,7 @@ class QRC(UTIL_QRC):
 
 					# backend details (in case backend-layer hooks didn't see it)
 					try:
-						collector.backend_layer.set_backend_details(backend)
+						collector.set_backend(backend)
 					except Exception as e:
 						logging.debug("IBMQ_QRC(Runtime): _run_circuit_impl – backend details set failed: %s", e)
 
@@ -549,7 +510,8 @@ class QRC(UTIL_QRC):
 		Sync execution entry point wrapped with qbacmet.collector.
 		"""
 		logging.debug("IBMQ_QRC(Runtime): run_circuit – entering collector.collect()")
-		with collector.collect():
+		with collector.collect() as qm:
+			self._remember_collection(circ, qm)
 			result = self._run_circuit_impl(circ)
 			logging.debug(
 				"IBMQ_QRC(Runtime): run_circuit – inside collect, partial collector.metrics keys: %s",
@@ -601,7 +563,7 @@ class QRC(UTIL_QRC):
 				collector.execution_layer.metrics["transpile_time"] = float(prev_tt) + compile_time
 
 				try:
-					collector.backend_layer.set_backend_details(backend)
+					collector.set_backend(backend)
 				except Exception as e:
 					logging.debug("IBMQ_QRC(Runtime): _run_circuit_async_impl – backend details set failed: %s", e)
 
@@ -711,7 +673,8 @@ class QRC(UTIL_QRC):
 		_finalize_task() is called in check_active_tasks().
 		"""
 		logging.debug("IBMQ_QRC(Runtime): run_circuit_async – entering collector.collect()")
-		with collector.collect():
+		with collector.collect() as qm:
+			self._remember_collection(circ, qm)
 			info = self._run_circuit_async_impl(circ)
 			logging.debug(
 				"IBMQ_QRC(Runtime): run_circuit_async – inside collect, partial collector.metrics keys: %s",

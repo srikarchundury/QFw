@@ -4,15 +4,24 @@ import logging
 import os
 import time
 
+from . import util_mqbac
+
 # Maximum number of processes per node
 MAX_PPN = 8
 # Maximum number of qubits per process
 MAX_QUBITS_PP = 10
+# Process slots this QPM was given (all assigned hosts); None when unknown
+QPM_CAPACITY = None
 
 
 def set_max_ppn(ppn):
 	global MAX_PPN
 	MAX_PPN = ppn
+
+
+def set_qpm_capacity(slots):
+	global QPM_CAPACITY
+	QPM_CAPACITY = slots if slots else None
 
 
 def set_max_qubits_pp(max_qubits):
@@ -57,6 +66,7 @@ class Circuit:
 		forced_np = os.environ.get('QFW_FORCE_NP', '').strip()
 		if forced_np:
 			self.info['np'] = int(forced_np)
+			self.info['np_policy'] = 'forced'
 			logging.debug(
 				f"QFW_FORCE_NP={forced_np} set — forcing number of processes to: "
 				f"{self.info['np']} for num qubits: {self.info['num_qubits']}")
@@ -69,8 +79,17 @@ class Circuit:
 		else:
 			np = round_to_nearest_power_of_two(np)
 		self.info['np'] = np
+		self.info['np_policy'] = 'rule'
+
+		# QFW_NP_POLICY=mqbac: MQBac picks among the counts this QPM can host; any failure keeps the rule.
+		if util_mqbac.policy() == 'mqbac':
+			decision = util_mqbac.decide_np(self.info, np, MAX_PPN, QPM_CAPACITY)
+			if decision:
+				self.info['np'] = decision['np']
+				self.info['np_policy'] = 'mqbac'
+				self.info['mqbac'] = decision
 		logging.debug(
-			f"Setting number of processes to: {self.info['np']} "
+			f"Setting number of processes to: {self.info['np']} ({self.info['np_policy']}) "
 			f"for num qubits: {self.info['num_qubits']}")
 
 	def getState(self):

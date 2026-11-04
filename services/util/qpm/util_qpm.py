@@ -8,7 +8,7 @@ import time
 import queue
 import os
 from defw_exception import DEFwError, DEFwNotReady, DEFwInProgress, DEFwOutOfResources
-from .util_circuit import Circuit, MAX_PPN
+from .util_circuit import Circuit, MAX_PPN, set_qpm_capacity
 from statistics import mean, median, stdev
 
 qpm_initialized = False
@@ -67,6 +67,8 @@ class UTIL_QPM:
 				self.free_hosts[comp[0]] = max_ppn
 			elif len(comp) == 2:
 				self.free_hosts[comp[0]] = int(comp[1])
+		# total slots bound the process counts MQBac may choose (QFW_NP_POLICY=mqbac)
+		set_qpm_capacity(sum(self.free_hosts.values()))
 
 	def create_circuit(self, info):
 		start = time.time()
