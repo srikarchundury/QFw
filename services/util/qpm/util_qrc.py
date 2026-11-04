@@ -107,6 +107,18 @@ class UTIL_QRC:
 			feats["mqbac"] = info["mqbac"]
 		return feats
 
+	def _qpm_load(self):
+		"""This QRC's load when a circuit is launched (read fresh each time, in-process, no cost)."""
+		try:
+			active = sum(len(w['active_tasks']) for w in self.worker_pool)
+			queued = sum(w['queue'].qsize() for w in self.worker_pool)
+		except Exception:
+			active = queued = None
+		with self._qbacmet_lock:
+			pending = len(self._qbacmet)
+		return {"rt_qpm_active_circuits": active, "rt_qpm_queued_circuits": queued,
+		        "rt_qpm_circuits_in_flight": pending, "rt_qpm_load_at": time.time()}
+
 	def _start_collection(self, circ):
 		"""Local backends run a separate executable, so library hooks see nothing: record what the QRC knows
 		(circuit from its QASM, backend, processes) explicitly. Timing is added when the result is built."""
@@ -116,6 +128,7 @@ class UTIL_QRC:
 				qm.set_algorithm_from_qasm(circ.info.get("qasm", "") or "", shots=circ.info.get("num_shots"))
 				qm.set_backend_features(**self._qbacmet_backend_features(circ))
 				qm.execution_layer.metrics["mpi_size"] = circ.info.get("np")
+				qm.execution_layer.metrics.update(self._qpm_load())
 		except Exception as e:
 			logging.debug("UTIL_QRC: QBacMet collection setup failed: %s", e)
 		self._remember_collection(circ, qm)
