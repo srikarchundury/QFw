@@ -86,7 +86,13 @@ def qfw_remote_run_prefix(tmp_dir):
 				'QFW_FORCE_NP',
 				'QFW_TRANSPILE_ONLY',
 				'QFW_FORCE_MAP_BY',
-				'QFW_FORCE_BIND_TO']:
+				'QFW_FORCE_BIND_TO',
+				'IBMQ_DEFAULT_TIMEOUT_S',
+				'QFW_NP_POLICY',
+				'QFW_MQBAC_HOME',
+				'QFW_MQBAC_MAX_NP',
+				'MQBAC_MODEL',
+				'QBACMET_RT_TTL']:
 		if key in os.environ:
 			exports.append(f'export {key}={shlex.quote(os.environ[key])}')
 	exports.append(f'export QFW_RUN_TMP_PATH={shlex.quote(tmp_dir)}')
@@ -138,7 +144,13 @@ def get_external_defw_env():
 				'QFW_FORCE_NP',
 				'QFW_TRANSPILE_ONLY',
 				'QFW_FORCE_MAP_BY',
-				'QFW_FORCE_BIND_TO']:
+				'QFW_FORCE_BIND_TO',
+				'IBMQ_DEFAULT_TIMEOUT_S',
+				'QFW_NP_POLICY',
+				'QFW_MQBAC_HOME',
+				'QFW_MQBAC_MAX_NP',
+				'MQBAC_MODEL',
+				'QBACMET_RT_TTL']:
 		if key in os.environ:
 			env[key] = os.environ[key]
 	return env
