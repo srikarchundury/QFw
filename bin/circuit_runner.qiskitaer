@@ -2,6 +2,18 @@
 
 import os
 from argparse import ArgumentParser
+# Aer's MPI-enabled build (AER_MPI=ON) calls MPI_Init internally as part of
+# its C++ runtime setup, but never calls MPI_Finalize before the Python
+# process exits -- prterun then reports "exited improperly" even though the
+# simulation itself succeeded. mpi4py normally auto-calls MPI_Init on import,
+# but Aer's own init doesn't check MPI_Initialized() first, so that races
+# with Aer and produces a "MPI_INIT ... more than once" error. Disable
+# mpi4py's auto-init/auto-finalize and instead call MPI.Finalize() ourselves
+# explicitly at the very end, once Aer is done using MPI.
+import mpi4py
+mpi4py.rc.initialize = False
+mpi4py.rc.finalize = False
+from mpi4py import MPI
 from qiskit_aer.aerprovider import AerSimulator
 from qiskit.circuit.quantumcircuit import QuantumCircuit
 # from qiskit.utils import algorithm_globals
@@ -31,31 +43,43 @@ simulator = AerSimulator(
 # small default (e.g. 2, meaning 4-amplitude chunks) segfaults Aer for
 # anything beyond trivially small/shallow circuits -- reproduced locally: a
 # 16-qubit, depth-199 circuit crashes with blocking_qubits=2 but runs fine
-# with blocking_qubits>=10. Default to the circuit's own qubit count (a
-# single chunk covering the whole statevector, i.e. no sub-chunking) unless
-# a caller explicitly requests finer-grained chunking.
-blocking_qubits = args.blocking_qubits if args.blocking_qubits is not None else qc.num_qubits
+# with blocking_qubits>=10. This build IS linked against libmpi (confirmed
+# via ldd on controller_wrappers*.so), so real cross-process distribution
+# works -- but only if there are at least as many chunks
+# (2**(num_qubits - blocking_qubits)) as MPI processes; a single chunk (the
+# old default of blocking_qubits == num_qubits) means every rank redundantly
+# simulates the whole circuit with nothing actually distributed. When
+# running under a real MPI launch (world size > 1) and the caller hasn't
+# pinned --blocking_qubits explicitly, shrink it just enough to guarantee at
+# least one chunk per process.
+num_mpi_procs = int(os.environ.get("OMPI_COMM_WORLD_SIZE", os.environ.get("PMI_SIZE", 1)))
+if args.blocking_qubits is not None:
+	blocking_qubits = args.blocking_qubits
+elif num_mpi_procs > 1:
+	chunk_bits = (num_mpi_procs - 1).bit_length()  # ceil(log2(num_mpi_procs))
+	blocking_qubits = max(0, qc.num_qubits - chunk_bits)
+else:
+	blocking_qubits = qc.num_qubits
 
 result = simulator.run(
 	qc,
 	shots = args.shots,
 	blocking_enable = True,
-	blocking_qubits = blocking_qubits
+	blocking_qubits = blocking_qubits,
+	seed_simulator = args.seed,
 ).result()
 
 meta = result.to_dict().get('metadata', {})
-# Aer only populates 'mpi_rank' in its own result metadata when built with
-# MPI support. This build isn't, so that key is always absent and 'myrank'
-# would stay 'Unknown' forever, meaning the process never satisfies
-# "myrank == 0" and never prints its counts. Fall back to the real MPI
-# launcher's own rank env vars (set correctly by mpirun/srun regardless of
-# whether Aer itself has MPI support compiled in), and default to rank 0
-# for a genuinely single-process run.
+# 'mpi_rank'/'num_mpi_processes' are only populated by Aer once real
+# cross-process chunking actually happened (see blocking_qubits above) --
+# fall back to the MPI launcher's own rank env vars otherwise (e.g. a
+# genuinely single-process run, or blocking_qubits explicitly pinned to a
+# single chunk).
 myrank = meta.get(
 	'mpi_rank',
 	int(os.environ.get("OMPI_COMM_WORLD_RANK", os.environ.get("PMI_RANK", 0)))
 )
-numprocs = meta.get('num_mpi_processes', 'Unknown')
+numprocs = meta.get('num_mpi_processes', num_mpi_procs)
 
 # print(f"[DEBUG] Rank {myrank}/{numprocs} finished simulation.")
 
@@ -64,5 +88,8 @@ if myrank == 0:
 
 # if myrank != 'Unknown':
 #     print(f"counts={result.get_counts()}")
+
+if MPI.Is_initialized() and not MPI.Is_finalized():
+	MPI.Finalize()
 
 ## Reference: https://qiskit.github.io/qiskit-aer/howtos/running_gpu.html
