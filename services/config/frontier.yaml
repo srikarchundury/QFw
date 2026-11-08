@@ -5,11 +5,20 @@ mpi-launch:
     - LD_LIBRARY_PATH
   bind-to: core
   map-by: ppr:1:l3cache
+  # Forces pure shared-memory transport (self,vader), bypassing OFI/CXI
+  # entirely. The OFI/libfabric transport is currently broken on this system
+  # for genuine cross-process MPI -- reproduced independently across 5
+  # different OpenMPI/libfabric builds (this system's default, a newer
+  # openmpi/libfabric pair, upstream's own module, the debug vs non-debug
+  # variant, and an old ompix build), each failing differently (MPI_Init
+  # "Unreachable", SIGABRT, or a segfault inside libfabric during a
+  # collective). Since QFw jobs run within a single node, shared memory is
+  # sufficient and avoids the network fabric altogether. This does NOT cover
+  # genuine multi-node scaling, which would still need a working OFI/CXI path.
   mca:
-    btl: ^tcp,ofi,vader,openib
-    pml: ^ucx
-    mtl: ofi
-    opal_common_ofi_provider_include: shm+cxi:linkx
+    pml: ob1
+    btl: self,vader
+    mtl: ^ofi
 
 backends:
   tnqvm:
