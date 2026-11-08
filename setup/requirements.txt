@@ -23,3 +23,5 @@ PyYAML
 # qbacmet is not on PyPI: install locally with
 #   pip install -e <path-to-QBacMet>
 # (metrics collector used by util_qrc.py's collector.collect() wrapping)
+# MQBac (optional, QFW_NP_POLICY=mqbac) is not installed: QFw imports it from the MQBac checkout next to
+# QFw (or $QFW_MQBAC_HOME) and reads the model MQBac/retrain.sh publishes; it needs only numpy and qiskit.

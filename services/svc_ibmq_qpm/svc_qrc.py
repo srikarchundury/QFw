@@ -506,28 +506,11 @@ class QRC(UTIL_QRC):
 			return self._error_ret(circ, msg)
 
 	def run_circuit(self, circ):
-		"""
-		Sync execution entry point wrapped with qbacmet.collector.
-		"""
-		logging.debug("IBMQ_QRC(Runtime): run_circuit – entering collector.collect()")
+		"""Sync entry point. The circuit's QBacMet collection is registered by circuit id; the result
+		helpers (_ok_ret/_error_ret) attach it, with the run's timeline, via UTIL_QRC._attach_metrics."""
 		with collector.collect() as qm:
 			self._remember_collection(circ, qm)
-			result = self._run_circuit_impl(circ)
-			logging.debug(
-				"IBMQ_QRC(Runtime): run_circuit – inside collect, partial collector.metrics keys: %s",
-				list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-			)
-
-		# At this point collector.auto_collect_all() has already run,
-		# so collector.metrics is fully populated. Re-attach to ensure
-		# we capture final metrics, even if _ok_ret ran earlier.
-		logging.debug(
-			"IBMQ_QRC(Runtime): run_circuit – after collect, final collector.metrics keys: %s",
-			list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-		)
-		result = self._attach_metrics(result)
-		logging.debug("IBMQ_QRC(Runtime): run_circuit – result type=%s", type(result))
-		return result
+			return self._run_circuit_impl(circ)
 
 	# -------------------------
 	# Async execution
@@ -667,28 +650,11 @@ class QRC(UTIL_QRC):
 			raise DEFwError(f"IBMQ_QRC(Runtime): submit failed backend={backend_name}: {e}")
 
 	def run_circuit_async(self, circ):
-		"""
-		Async execution entry point wrapped with qbacmet.collector.
-		Metrics collected here (compile/submit) are later attached when
-		_finalize_task() is called in check_active_tasks().
-		"""
-		logging.debug("IBMQ_QRC(Runtime): run_circuit_async – entering collector.collect()")
+		"""Async entry point. Compile/submit metrics go into the circuit's own QBacMet collection, which
+		_finalize_task() attaches (looked up by circuit id) when check_active_tasks() sees the job finish."""
 		with collector.collect() as qm:
 			self._remember_collection(circ, qm)
-			info = self._run_circuit_async_impl(circ)
-			logging.debug(
-				"IBMQ_QRC(Runtime): run_circuit_async – inside collect, partial collector.metrics keys: %s",
-				list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-			)
-
-		# Collector has finished; metrics are ready. Attach them.
-		logging.debug(
-			"IBMQ_QRC(Runtime): run_circuit_async – after collect, final collector.metrics keys: %s",
-			list(collector.metrics.keys()) if isinstance(collector.metrics, dict) else type(collector.metrics),
-		)
-		info = self._attach_metrics(info)
-		logging.debug("IBMQ_QRC(Runtime): run_circuit_async – info type=%s", type(info))
-		return info
+			return self._run_circuit_async_impl(circ)
 
 	def check_active_tasks(self, wid):
 		complete = []
