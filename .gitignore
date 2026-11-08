@@ -10,3 +10,7 @@ services/svc_*_qpm/*_env.sh
 
 # Local Python build output (setup.py build), not portable/reproducible source
 backends/build/
+
+# built from source by the setup scripts (removed from git in 4817839)
+bin/circuit_runner.nwqsim
+bin/circuit_runner.tnqvm
